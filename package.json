@@ -3,6 +3,14 @@
   "version": "0.0.0",
   "description": "A local web editor for generating and editing transparent short-video overlay effects from SRT and JSON.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kaigeer344-coder/motion-playground.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kaigeer344-coder/motion-playground/issues"
+  },
+  "homepage": "https://github.com/kaigeer344-coder/motion-playground#readme",
   "type": "module",
   "scripts": {
     "dev": "vite",
