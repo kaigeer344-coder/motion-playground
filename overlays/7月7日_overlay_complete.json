@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "source": "srt",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "safeArea": {
+      "x": 538,
+      "y": 0,
+      "w": 844,
+      "h": 1080,
+      "empty": true
+    }
+  },
+  "overlays": [
+    {
+      "id": "overlay_0001",
+      "kind": "quote",
+      "start": "00:00:00,066",
+      "end": "00:00:22,033",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "AI焦虑",
+        "line2": "怎么办",
+        "blue": [
+          "AI"
+        ],
+        "green": [],
+        "eyebrow": "INSIGHT"
+      }
+    },
+    {
+      "id": "overlay_0002",
+      "kind": "compare",
+      "start": "00:00:20,833",
+      "end": "00:00:26,000",
+      "x": 1460,
+      "y": 280,
+      "w": 360,
+      "fontSize": 92,
+      "text": {
+        "leftLabel": "EARLY WEB",
+        "leftValue": "互联网",
+        "leftCaption": "早期浪潮",
+        "rightLabel": "AI ERA",
+        "rightValue": "AI时代",
+        "rightCaption": "同级变革"
+      }
+    },
+    {
+      "id": "overlay_0003",
+      "kind": "quote",
+      "start": "00:00:24,800",
+      "end": "00:00:32,433",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "落后就会",
+        "line2": "被时代抛弃",
+        "blue": [],
+        "green": [
+          "时代"
+        ],
+        "eyebrow": "INSIGHT"
+      }
+    },
+    {
+      "id": "overlay_0004",
+      "kind": "compare",
+      "start": "00:00:31,233",
+      "end": "00:00:40,933",
+      "x": 1460,
+      "y": 280,
+      "w": 360,
+      "fontSize": 92,
+      "text": {
+        "leftLabel": "OLD",
+        "leftValue": "智能手机",
+        "leftCaption": "上一代门槛",
+        "rightLabel": "NOW",
+        "rightValue": "AI工具",
+        "rightCaption": "这一代门槛"
+      }
+    },
+    {
+      "id": "overlay_0005",
+      "kind": "quote",
+      "start": "00:00:39,733",
+      "end": "00:00:49,866",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "AI编程",
+        "line2": "正在变成入口",
+        "blue": [
+          "AI"
+        ],
+        "green": [],
+        "eyebrow": "INSIGHT"
+      }
+    },
+    {
+      "id": "overlay_0006",
+      "kind": "quote",
+      "start": "00:00:48,666",
+      "end": "00:00:56,900",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "普通人",
+        "line2": "别被抛弃",
+        "blue": [],
+        "green": [
+          "普通人"
+        ],
+        "eyebrow": "INSIGHT"
+      }
+    },
+    {
+      "id": "overlay_0007",
+      "kind": "quote",
+      "start": "00:00:55,700",
+      "end": "00:01:07,400",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "把AI融入",
+        "line2": "思维和工作",
+        "blue": [
+          "AI"
+        ],
+        "green": [
+          "工作"
+        ],
+        "eyebrow": "INSIGHT"
+      }
+    },
+    {
+      "id": "overlay_0008",
+      "kind": "quote",
+      "start": "00:01:06,200",
+      "end": "00:01:11,800",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "不断探索",
+        "line2": "不断优化",
+        "blue": [],
+        "green": [
+          "优化"
+        ],
+        "eyebrow": "INSIGHT"
+      }
+    },
+    {
+      "id": "overlay_0009",
+      "kind": "quote",
+      "start": "00:01:10,600",
+      "end": "00:01:34,200",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "AI就是",
+        "line2": "你的手脚",
+        "blue": [
+          "AI"
+        ],
+        "green": [],
+        "eyebrow": "INSIGHT"
+      }
+    },
+    {
+      "id": "overlay_0010",
+      "kind": "quote",
+      "start": "00:01:33,000",
+      "end": "00:01:56,466",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "Skill加持",
+        "line2": "PPT更好看",
+        "blue": [
+          "Skill"
+        ],
+        "green": [],
+        "eyebrow": "INSIGHT"
+      }
+    },
+    {
+      "id": "overlay_0011",
+      "kind": "compare",
+      "start": "00:01:55,266",
+      "end": "00:02:06,066",
+      "x": 72,
+      "y": 280,
+      "w": 360,
+      "fontSize": 92,
+      "text": {
+        "leftLabel": "ANXIETY",
+        "leftValue": "怕淘汰",
+        "leftCaption": "持续内耗",
+        "rightLabel": "ACTION",
+        "rightValue": "先使用",
+        "rightCaption": "进入环境"
+      }
+    },
+    {
+      "id": "overlay_0012",
+      "kind": "bars",
+      "start": "00:02:04,866",
+      "end": "00:02:19,633",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 58,
+      "text": {
+        "items": [
+          {
+            "value": "80%",
+            "label": "仍停留在低层对话"
+          }
+        ]
+      }
+    },
+    {
+      "id": "overlay_0013",
+      "kind": "quote",
+      "start": "00:02:18,433",
+      "end": "00:03:06,500",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "AI智能体",
+        "line2": "替代大量工作",
+        "blue": [
+          "AI"
+        ],
+        "green": [
+          "工作"
+        ],
+        "eyebrow": "INSIGHT"
+      }
+    },
+    {
+      "id": "overlay_0014",
+      "kind": "quote",
+      "start": "00:03:05,300",
+      "end": "00:03:15,666",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "line1": "站上AI风口",
+        "line2": "创造价值",
+        "blue": [
+          "AI"
+        ],
+        "green": [
+          "价值"
+        ],
+        "eyebrow": "INSIGHT"
+      }
+    }
+  ]
+}

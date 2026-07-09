@@ -1,0 +1,783 @@
+{
+  "version": 1,
+  "source": "srt",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "safeArea": {
+      "x": 538,
+      "y": 0,
+      "w": 844,
+      "h": 1080,
+      "empty": true
+    }
+  },
+  "overlays": [
+    {
+      "id": "overlay_0001",
+      "kind": "quote",
+      "start": "00:00:00,000",
+      "end": "00:00:02,500",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "我发现所有的",
+        "line2": "学习类APP",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0002",
+      "kind": "quote",
+      "start": "00:00:01,333",
+      "end": "00:00:03,833",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "都非常非",
+        "line2": "常的无聊",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0003",
+      "kind": "quote",
+      "start": "00:00:03,133",
+      "end": "00:00:05,633",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "就学英语这",
+        "line2": "件事情来说",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0004",
+      "kind": "quote",
+      "start": "00:00:05,066",
+      "end": "00:00:07,566",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "背单词",
+        "line2": "是一个",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0005",
+      "kind": "quote",
+      "start": "00:00:05,833",
+      "end": "00:00:08,333",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "所有人都绕不",
+        "line2": "过去的一个问题",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0006",
+      "kind": "quote",
+      "start": "00:00:07,400",
+      "end": "00:00:10,500",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "但是现有的APP都是让你a",
+        "line2": "bandon abandon",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0007",
+      "kind": "quote",
+      "start": "00:00:10,500",
+      "end": "00:00:13,000",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "一遍一",
+        "line2": "遍的背",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0008",
+      "kind": "quote",
+      "start": "00:00:11,733",
+      "end": "00:00:14,233",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "虽然说背单",
+        "line2": "词最好的方法",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0009",
+      "kind": "quote",
+      "start": "00:00:14,100",
+      "end": "00:00:16,600",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "就是不断",
+        "line2": "的去重复",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0010",
+      "kind": "quote",
+      "start": "00:00:15,233",
+      "end": "00:00:17,733",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "但是这也",
+        "line2": "太无聊了吧",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0011",
+      "kind": "flow",
+      "start": "00:00:16,866",
+      "end": "00:00:19,366",
+      "x": 72,
+      "y": 280,
+      "w": 360,
+      "fontSize": 20,
+      "text": {
+        "steps": [
+          "然后正好最近vibecoding比…",
+          "确认信息",
+          "输出结果"
+        ],
+        "activeStep": 3
+      }
+    },
+    {
+      "id": "overlay_0012",
+      "kind": "quote",
+      "start": "00:00:19,300",
+      "end": "00:00:21,800",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "能不能做一",
+        "line2": "个有趣的工具",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0013",
+      "kind": "quote",
+      "start": "00:00:22,866",
+      "end": "00:00:25,366",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "我就用trae去",
+        "line2": "做了那么一个工具",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0014",
+      "kind": "flow",
+      "start": "00:00:24,900",
+      "end": "00:00:27,400",
+      "x": 1460,
+      "y": 280,
+      "w": 360,
+      "fontSize": 20,
+      "text": {
+        "steps": [
+          "那么首先来到我们的首页",
+          "确认信息",
+          "输出结果"
+        ],
+        "activeStep": 3
+      }
+    },
+    {
+      "id": "overlay_0015",
+      "kind": "flow",
+      "start": "00:00:26,633",
+      "end": "00:00:29,133",
+      "x": 72,
+      "y": 280,
+      "w": 360,
+      "fontSize": 20,
+      "text": {
+        "steps": [
+          "然后你可以选择",
+          "确认信息",
+          "输出结果"
+        ],
+        "activeStep": 3
+      }
+    },
+    {
+      "id": "overlay_0016",
+      "kind": "quote",
+      "start": "00:00:27,666",
+      "end": "00:00:30,166",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "你今天想要",
+        "line2": "学习的单词数",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0017",
+      "kind": "quote",
+      "start": "00:00:29,900",
+      "end": "00:00:32,400",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "这样你就可以",
+        "line2": "看到这本单词书",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0018",
+      "kind": "quote",
+      "start": "00:00:31,733",
+      "end": "00:00:34,233",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "你还要多少",
+        "line2": "天才可以背完",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0019",
+      "kind": "quote",
+      "start": "00:00:34,400",
+      "end": "00:00:36,900",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "那么来到",
+        "line2": "学习的界面",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0020",
+      "kind": "quote",
+      "start": "00:00:36,300",
+      "end": "00:00:38,800",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "也是跟平",
+        "line2": "常的一样",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0021",
+      "kind": "quote",
+      "start": "00:00:37,600",
+      "end": "00:00:40,100",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "你不认识单词",
+        "line2": "你就选择不认识",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0022",
+      "kind": "quote",
+      "start": "00:00:39,733",
+      "end": "00:00:42,233",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "有一点印象但是",
+        "line2": "一下子想不起来",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0023",
+      "kind": "quote",
+      "start": "00:00:42,733",
+      "end": "00:00:45,233",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "认识单词",
+        "line2": "你就填认识",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0024",
+      "kind": "metric",
+      "start": "00:00:45,066",
+      "end": "00:00:47,566",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 132,
+      "text": {
+        "value": "5",
+        "unit": "",
+        "label": ""
+      }
+    },
+    {
+      "id": "overlay_0025",
+      "kind": "quote",
+      "start": "00:00:47,266",
+      "end": "00:00:49,766",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "这样可以极大的",
+        "line2": "减轻你的认知负担",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0026",
+      "kind": "flow",
+      "start": "00:00:49,400",
+      "end": "00:00:51,900",
+      "x": 1460,
+      "y": 280,
+      "w": 360,
+      "fontSize": 20,
+      "text": {
+        "steps": [
+          "那么来到第二个环节",
+          "确认信息",
+          "输出结果"
+        ],
+        "activeStep": 3
+      }
+    },
+    {
+      "id": "overlay_0027",
+      "kind": "quote",
+      "start": "00:00:50,533",
+      "end": "00:00:53,033",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "也就是我们",
+        "line2": "的游戏界面",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0028",
+      "kind": "quote",
+      "start": "00:00:51,800",
+      "end": "00:00:54,300",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "这个才是",
+        "line2": "真正的重点",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0029",
+      "kind": "quote",
+      "start": "00:00:54,300",
+      "end": "00:00:56,800",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "最重要的就",
+        "line2": "是重复的环节",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0030",
+      "kind": "quote",
+      "start": "00:00:57,800",
+      "end": "00:01:00,633",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "就是把刚才背",
+        "line2": "的单词一一匹配",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0031",
+      "kind": "quote",
+      "start": "00:01:00,700",
+      "end": "00:01:03,200",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "当然如果有",
+        "line2": "忘记的情况",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0032",
+      "kind": "quote",
+      "start": "00:01:01,866",
+      "end": "00:01:04,366",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "你也可以",
+        "line2": "点击提示",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0033",
+      "kind": "quote",
+      "start": "00:01:03,466",
+      "end": "00:01:05,966",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "在这个",
+        "line2": "过程中",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0034",
+      "kind": "quote",
+      "start": "00:01:04,500",
+      "end": "00:01:07,000",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "我还加入了一",
+        "line2": "些连接的特效",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0035",
+      "kind": "quote",
+      "start": "00:01:06,133",
+      "end": "00:01:08,633",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "来增强你",
+        "line2": "的体验感",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0036",
+      "kind": "quote",
+      "start": "00:01:07,833",
+      "end": "00:01:10,333",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "当然仅仅",
+        "line2": "如此还不够",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0037",
+      "kind": "metric",
+      "start": "00:01:10,233",
+      "end": "00:01:13,666",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 132,
+      "text": {
+        "value": "FSRS-4",
+        "unit": "",
+        "label": ""
+      }
+    },
+    {
+      "id": "overlay_0038",
+      "kind": "quote",
+      "start": "00:01:13,666",
+      "end": "00:01:16,166",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "它是一种比艾",
+        "line2": "宾浩斯遗忘曲线",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0039",
+      "kind": "quote",
+      "start": "00:01:15,733",
+      "end": "00:01:18,233",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "更先进的",
+        "line2": "一种算法",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0040",
+      "kind": "quote",
+      "start": "00:01:18,300",
+      "end": "00:01:20,800",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "它可以根据你",
+        "line2": "的表现不断的",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0041",
+      "kind": "quote",
+      "start": "00:01:20,333",
+      "end": "00:01:22,833",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "调整你复",
+        "line2": "习的情况",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0042",
+      "kind": "flow",
+      "start": "00:01:21,966",
+      "end": "00:01:24,466",
+      "x": 1460,
+      "y": 280,
+      "w": 360,
+      "fontSize": 20,
+      "text": {
+        "steps": [
+          "当然后续我也会持续的去优化",
+          "确认信息",
+          "输出结果"
+        ],
+        "activeStep": 3
+      }
+    },
+    {
+      "id": "overlay_0043",
+      "kind": "quote",
+      "start": "00:01:24,466",
+      "end": "00:01:26,966",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "如果有感",
+        "line2": "兴趣的朋友",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0044",
+      "kind": "quote",
+      "start": "00:01:25,400",
+      "end": "00:01:27,900",
+      "x": 1404,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "可以在评",
+        "line2": "论区留言",
+        "blue": [],
+        "green": []
+      }
+    },
+    {
+      "id": "overlay_0045",
+      "kind": "quote",
+      "start": "00:01:26,533",
+      "end": "00:01:29,033",
+      "x": 96,
+      "y": 220,
+      "w": 420,
+      "fontSize": 72,
+      "text": {
+        "eyebrow": "INSIGHT",
+        "line1": "我会把体验的",
+        "line2": "链接分享给你",
+        "blue": [],
+        "green": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+:root {
+  --bg: #030303;
+  --surface: #0a0a0a;
+  --text-strong: #f4f4f4;
+  --text: #b4b4b4;
+  --text-muted: #737373;
+  --rule: rgba(255, 255, 255, 0.1);
+  --rule-strong: rgba(255, 255, 255, 0.18);
+  --focus: #ffffff;
+  font-family:
+    'SF Mono', 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100dvh;
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+#root {
+  min-height: 100dvh;
+}
