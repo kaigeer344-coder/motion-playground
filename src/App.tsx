@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlignHorizontalJustifyEnd,
+  AlignHorizontalJustifyStart,
   AlignHorizontalJustifyCenter,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+  AlignVerticalJustifyStart,
   BadgeCheck,
   BarChart3,
+  Cable,
   Check,
   ClipboardCheck,
   Columns2,
@@ -17,11 +23,15 @@ import {
   Plus,
   Quote,
   RotateCcw,
+  Redo2,
   SkipBack,
   SkipForward,
   SlidersHorizontal,
   Truck,
+  Undo2,
   Upload,
+  Volume2,
+  VolumeX,
   X,
   ZoomIn,
   ZoomOut,
@@ -63,6 +73,9 @@ type DragState = {
   mode: 'json' | 'json-resize' | 'manual'
   origin: OverlayPosition
   originScale?: number
+  resizeBaseHeight?: number
+  resizeBaseWidth?: number
+  resizeHandle?: 'nw' | 'ne' | 'sw' | 'se'
   pointerId: number
   scaleX?: number
   scaleY?: number
@@ -87,6 +100,7 @@ type ExportState = {
   file?: string
   format: 'video'
   phase?: string
+  snapshotLabel?: string
   total: number
 }
 
@@ -113,10 +127,37 @@ type OverlayItem = {
   y: number
 }
 
+type OverlayVisualBounds = {
+  height: number
+  left: number
+  top: number
+  width: number
+}
+
 type OverlayProject = {
   duration: number
+  effectArea?: EffectAreaSettings
   name: string
   overlays: OverlayItem[]
+}
+
+type EffectAreaSettings = {
+  bottomPercent: number
+  topPercent: number
+  widthPercent: number
+}
+
+type AreaAlignment = 'start' | 'center' | 'end'
+
+type ProjectSnapshot = {
+  effectArea: EffectAreaSettings
+  overlayProject: OverlayProject | null
+  selected: MotionKey
+  selectedOverlayId: string | null
+}
+
+type ProjectHistoryEntry = ProjectSnapshot & {
+  label: string
 }
 
 type AiConfig = {
@@ -135,12 +176,27 @@ type SrtCue = {
   text: string
 }
 
+type PendingSrtGeneration = {
+  fileName: string
+  text: string
+}
+
+type AiConnectionState = {
+  message: string
+  status: 'idle' | 'testing' | 'success' | 'error'
+}
+
 const EXPORT_WIDTH = 1920
 const EXPORT_HEIGHT = 1080
 const EXPORT_FPS = 30
 const SAFE_AREA_RATIO = 0.6
 const SIDE_EFFECT_WIDTH = EXPORT_WIDTH * ((1 - SAFE_AREA_RATIO) / 2)
 const RIGHT_EFFECT_MIN_X = EXPORT_WIDTH - SIDE_EFFECT_WIDTH
+const DEFAULT_EFFECT_AREA: EffectAreaSettings = {
+  bottomPercent: 12,
+  topPercent: 12,
+  widthPercent: 20,
+}
 const EXPORT_ROOT_LABEL = '~/Desktop/剪辑素材'
 const GENERATED_OVERLAY_MIN_SECONDS = 2.5
 const GENERATED_OVERLAY_FADE_SECONDS = 1.2
@@ -149,6 +205,8 @@ const AI_CONFIG_STORAGE_KEY = 'overlay-studio-ai-config'
 const TIMELINE_MIN_ZOOM = 1
 const TIMELINE_MAX_ZOOM = 16
 const TIMELINE_ZOOM_STEP = 0.5
+const TIMELINE_WHEEL_ZOOM_STEP = 0.25
+const PROJECT_HISTORY_LIMIT = 60
 
 const defaultAiConfig: AiConfig = {
   apiKey: '',
@@ -321,6 +379,19 @@ function sanitizeOverlayText(kind: MotionKey, text: OverlayText) {
   return text
 }
 
+function getLegacyFlowCompareText(text: OverlayText): OverlayText {
+  const steps = Array.isArray(text.steps) ? text.steps.filter((step): step is string => typeof step === 'string') : []
+
+  return {
+    leftCaption: '旧路径',
+    leftLabel: 'STEP1',
+    leftValue: steps[0] || '过去',
+    rightCaption: '新机会',
+    rightLabel: 'STEP2',
+    rightValue: steps[1] || '现在',
+  }
+}
+
 function getMetricTextFromOverlayText(text: OverlayText) {
   const firstItem = Array.isArray(text.items) && text.items[0] && typeof text.items[0] === 'object'
     ? text.items[0] as Record<string, unknown>
@@ -413,12 +484,61 @@ function loadAiConfig() {
     const parsed = JSON.parse(stored) as Partial<AiConfig>
 
     return {
-      apiKey: readText(parsed.apiKey, ''),
+      // API keys remain session-only; migrate older persisted settings safely.
+      apiKey: '',
       baseUrl: readText(parsed.baseUrl, ''),
       model: readText(parsed.model, ''),
     }
   } catch {
     return defaultAiConfig
+  }
+}
+
+function cloneOverlayProject(project: OverlayProject | null) {
+  return project ? JSON.parse(JSON.stringify(project)) as OverlayProject : null
+}
+
+function normalizeEffectArea(value: unknown): EffectAreaSettings {
+  const source = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const widthPercent = Math.min(35, Math.max(12, readNumber(source.widthPercent, DEFAULT_EFFECT_AREA.widthPercent)))
+  const topPercent = Math.min(40, Math.max(0, readNumber(source.topPercent, DEFAULT_EFFECT_AREA.topPercent)))
+  const bottomPercent = Math.min(
+    40,
+    Math.max(0, Math.min(readNumber(source.bottomPercent, DEFAULT_EFFECT_AREA.bottomPercent), 80 - topPercent)),
+  )
+
+  return { bottomPercent, topPercent, widthPercent }
+}
+
+function getEffectZone(area: EffectAreaSettings, placement: 'left' | 'right') {
+  const width = EXPORT_WIDTH * (area.widthPercent / 100)
+  const x = placement === 'right' ? EXPORT_WIDTH - width : 0
+  const y = EXPORT_HEIGHT * (area.topPercent / 100)
+  const height = EXPORT_HEIGHT * ((100 - area.topPercent - area.bottomPercent) / 100)
+
+  return { height, width, x, y }
+}
+
+function getCenteredEffectX(area: EffectAreaSettings, placement: 'left' | 'right', width: number, scale = 1) {
+  const zone = getEffectZone(area, placement)
+  return zone.x + Math.max(0, (zone.width - Math.min(width * scale, zone.width)) / 2)
+}
+
+function getAlignedOverlayPosition(
+  item: OverlayItem,
+  area: EffectAreaSettings,
+  horizontal: AreaAlignment,
+  vertical: AreaAlignment,
+) {
+  const zone = getEffectZone(area, getOverlayPlacement(item))
+  const visualWidth = Math.min(item.w * item.scale, zone.width)
+  const visualHeight = Math.min(getOverlayBoxHeight(item.kind) * item.scale, zone.height)
+  const xOffset = horizontal === 'center' ? (zone.width - visualWidth) / 2 : horizontal === 'end' ? zone.width - visualWidth : 0
+  const yOffset = vertical === 'center' ? (zone.height - visualHeight) / 2 : vertical === 'end' ? zone.height - visualHeight : 0
+
+  return {
+    x: Math.round(zone.x + xOffset),
+    y: Math.round(zone.y + yOffset),
   }
 }
 
@@ -435,13 +555,16 @@ function normalizeOverlayProject(payload: unknown, name: string): OverlayProject
     throw new Error('JSON 结构需要包含 overlays 数组')
   }
 
-  const overlays = (payload as { overlays: unknown[] }).overlays.map((item, index) => {
+  const sourceProject = payload as { effectArea?: unknown; overlays: unknown[] }
+  const effectArea = normalizeEffectArea(sourceProject.effectArea)
+  const overlays = sourceProject.overlays.map((item, index) => {
     if (!item || typeof item !== 'object') {
       throw new Error(`overlay_${String(index + 1).padStart(4, '0')} 不是有效对象`)
     }
 
     const source = item as Record<string, unknown>
-    const kind = source.kind
+    const rawKind = source.kind
+    const kind = rawKind === 'flow' ? 'compare' : rawKind
     const start = source.start
     const end = source.end
 
@@ -462,12 +585,13 @@ function normalizeOverlayProject(payload: unknown, name: string): OverlayProject
 
     const defaultWidth = getDefaultOverlayWidth(kind)
     const w = Math.min(defaultWidth, Math.max(120, readNumber(source.w, defaultWidth)))
-    const y = readNumber(source.y, kind === 'flow' || kind === 'compare' ? 280 : 220)
+    const y = readNumber(source.y, kind === 'compare' ? 280 : 220)
     const scale = Math.min(2, SIDE_EFFECT_WIDTH / w, Math.max(0.4, readNumber(source.scale, 1)))
     const requestedX = readNumber(source.x, index % 2 === 0 ? 0 : EXPORT_WIDTH)
     const placement = requestedX >= EXPORT_WIDTH / 2 ? 'right' : 'left'
-    const x = Math.round(getCenteredSideX(placement, w, scale))
-    const text = sanitizeOverlayText(kind, source.text && typeof source.text === 'object' ? source.text as OverlayText : {})
+    const x = Math.round(getEffectZone(effectArea, placement).x + (getEffectZone(effectArea, placement).width - w * scale) / 2)
+    const sourceText = source.text && typeof source.text === 'object' ? source.text as OverlayText : {}
+    const text = sanitizeOverlayText(kind, rawKind === 'flow' ? getLegacyFlowCompareText(sourceText) : sourceText)
 
     return {
       end,
@@ -485,10 +609,14 @@ function normalizeOverlayProject(payload: unknown, name: string): OverlayProject
     }
   })
 
-  const alternatedOverlays = enforceNumericKindAlternation(overlays)
+  const alternatedOverlays = enforceNumericKindAlternation(overlays).map((item) => ({
+    ...item,
+    ...getAlignedOverlayPosition(item, effectArea, 'center', 'center'),
+  }))
 
   return {
     duration: alternatedOverlays.reduce((max, item) => Math.max(max, item.endSeconds), 0),
+    effectArea,
     name,
     overlays: alternatedOverlays,
   }
@@ -848,6 +976,7 @@ function generateOverlayProjectFromSrt(text: string, fileName: string): OverlayP
 
   return {
     duration: Math.max(finalEndSeconds, ...overlays.map((item) => item.endSeconds)),
+    effectArea: { ...DEFAULT_EFFECT_AREA },
     name: `${stem}_overlay_auto.json`,
     overlays,
   }
@@ -857,34 +986,42 @@ function getOverlayPlacement(item: OverlayItem) {
   return item.x >= EXPORT_WIDTH / 2 ? 'right' : 'left'
 }
 
-function getDefaultAnchor(kind: MotionKey, placement: 'left' | 'right') {
+function getDefaultAnchor(kind: MotionKey, placement: 'left' | 'right', area = DEFAULT_EFFECT_AREA) {
   if (kind === 'flow') {
-    return { x: Math.round(getCenteredSideX(placement, getDefaultOverlayWidth(kind))), y: 280 }
+    return { x: Math.round(getCenteredEffectX(area, placement, getDefaultOverlayWidth(kind))), y: 280 }
   }
 
   if (kind === 'compare') {
-    return { x: Math.round(getCenteredSideX(placement, getDefaultOverlayWidth(kind))), y: 280 }
+    return { x: Math.round(getCenteredEffectX(area, placement, getDefaultOverlayWidth(kind))), y: 280 }
   }
 
   if (kind === 'bars') {
-    return { x: Math.round(getCenteredSideX(placement, getDefaultOverlayWidth(kind))), y: 246 }
+    return { x: Math.round(getCenteredEffectX(area, placement, getDefaultOverlayWidth(kind))), y: 246 }
   }
 
-  return { x: Math.round(getCenteredSideX(placement, getDefaultOverlayWidth(kind))), y: 220 }
+  return { x: Math.round(getCenteredEffectX(area, placement, getDefaultOverlayWidth(kind))), y: 220 }
 }
 
-function getOverlayAnchor(item: OverlayItem) {
+function getOverlayRenderAnchorY(kind: MotionKey) {
+  if (kind === 'quote') return 470
+  if (kind === 'compare') return 435
+  if (kind === 'bars') return 455
+  if (kind === 'flow') return 430
+  return 220
+}
+
+function getOverlayAnchor(item: OverlayItem, area = DEFAULT_EFFECT_AREA) {
   const placement = getOverlayPlacement(item)
-  const defaultAnchor = getDefaultAnchor(item.kind, placement)
 
   return {
-    x: Math.round(getCenteredSideX(placement, item.w, item.scale)),
-    y: defaultAnchor.y,
+    x: Math.round(getCenteredEffectX(area, placement, item.w, item.scale)),
+    y: getOverlayRenderAnchorY(item.kind),
   }
 }
 
-function getJsonOverlayStyle(item: OverlayItem) {
-  const anchor = getOverlayAnchor(item)
+function getJsonOverlayStyle(item: OverlayItem, area = DEFAULT_EFFECT_AREA) {
+  const anchor = getOverlayAnchor(item, area)
+  const isDualSide = item.kind === 'compare'
   const fontScale = Math.max(0.55, Math.min(1.65, item.fontSize / getDefaultFontSize(item.kind)))
 
   return {
@@ -896,11 +1033,12 @@ function getJsonOverlayStyle(item: OverlayItem) {
     '--json-flow-text-size': `${10 * fontScale}px`,
     '--json-metric-number-size': `${66 * fontScale}px`,
     '--json-metric-unit-size': `${23 * fontScale}px`,
-    '--json-offset-x': `${((item.x - anchor.x) / EXPORT_WIDTH) * 100}%`,
+    '--json-compare-scale': isDualSide ? item.scale : 1,
+    '--json-offset-x': isDualSide ? '0%' : `${((item.x - anchor.x) / EXPORT_WIDTH) * 100}%`,
     '--json-offset-y': `${((item.y - anchor.y) / EXPORT_HEIGHT) * 100}%`,
     '--json-quote-eyebrow-size': `${20 * fontScale}px`,
     '--json-quote-size': `${26 * fontScale}px`,
-    '--json-scale': item.scale,
+    '--json-scale': isDualSide ? 1 : item.scale,
   } as React.CSSProperties
 }
 
@@ -942,7 +1080,7 @@ function getOverlayBoxHeight(kind: MotionKey) {
   if (kind === 'flow') return 340
   if (kind === 'compare') return 210
   if (kind === 'bars') return 260
-  if (kind === 'quote') return 310
+  if (kind === 'quote') return 220
   return 260
 }
 
@@ -1352,20 +1490,35 @@ function App() {
   const [replayKey, setReplayKey] = useState(0)
   const [videoAsset, setVideoAsset] = useState<VideoAsset | null>(null)
   const [videoTime, setVideoTime] = useState(0)
+  const [subtitleCues, setSubtitleCues] = useState<SrtCue[]>([])
+  const [showCaptions, setShowCaptions] = useState(true)
   const [timelineTime, setTimelineTime] = useState(0)
   const [overlayProject, setOverlayProject] = useState<OverlayProject | null>(null)
+  const [effectArea, setEffectArea] = useState<EffectAreaSettings>(() => ({ ...DEFAULT_EFFECT_AREA }))
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null)
+  const [selectedOverlayBounds, setSelectedOverlayBounds] = useState<OverlayVisualBounds | null>(null)
   const [jsonError, setJsonError] = useState('')
   const [srtStatus, setSrtStatus] = useState('')
+  const [pendingSrtGeneration, setPendingSrtGeneration] = useState<PendingSrtGeneration | null>(null)
   const [aiConfig, setAiConfig] = useState<AiConfig>(() => loadAiConfig())
+  const [aiConnection, setAiConnection] = useState<AiConnectionState>({ message: '', status: 'idle' })
+  const [hasAiConsent, setHasAiConsent] = useState(false)
   const [isAiGenerating, setIsAiGenerating] = useState(false)
   const [aiProgress, setAiProgress] = useState<ProgressState | null>(null)
   const [overlayPositions, setOverlayPositions] = useState<Record<MotionKey, OverlayPosition>>(defaultOverlayPositions)
   const [isDraggingOverlay, setIsDraggingOverlay] = useState(false)
   const [isDraggingTimeline, setIsDraggingTimeline] = useState(false)
   const [isSnapEnabled, setIsSnapEnabled] = useState(true)
+  const [isFollowingPlayhead, setIsFollowingPlayhead] = useState(true)
+  const [isMuted, setIsMuted] = useState(true)
   const [timelineZoom, setTimelineZoom] = useState(1.15)
   const [exportState, setExportState] = useState<ExportState | null>(null)
+  const [history, setHistory] = useState<{ past: ProjectHistoryEntry[]; future: ProjectHistoryEntry[] }>({
+    past: [],
+    future: [],
+  })
+  const [isProjectDirty, setIsProjectDirty] = useState(false)
+  const [editAnnouncement, setEditAnnouncement] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const jsonInputRef = useRef<HTMLInputElement>(null)
   const srtInputRef = useRef<HTMLInputElement>(null)
@@ -1376,11 +1529,16 @@ function App() {
   const timelineDragRef = useRef<TimelineDragState | null>(null)
   const timelineScrollRef = useRef<HTMLDivElement>(null)
   const suppressTimelineClickRef = useRef(false)
+  const historyGroupRef = useRef<ProjectHistoryEntry | null>(null)
 
   const activePreset = presets.find((preset) => preset.id === selected) ?? presets[0]
   const isAiReady = hasCompleteAiConfig(aiConfig)
   const projectDuration = Math.max(overlayProject?.duration ?? 0, videoAsset?.duration ?? 0)
   const currentPlaybackTime = videoAsset ? videoTime : timelineTime
+  const activeCaption = useMemo(
+    () => subtitleCues.find((cue) => currentPlaybackTime >= cue.startSeconds && currentPlaybackTime <= cue.endSeconds),
+    [currentPlaybackTime, subtitleCues],
+  )
   const activeOverlayItems = useMemo(
     () =>
       overlayProject?.overlays.filter(
@@ -1397,6 +1555,114 @@ function App() {
       currentPlaybackTime >= selectedOverlay.startSeconds &&
       currentPlaybackTime <= selectedOverlay.endSeconds,
   )
+
+  useEffect(() => {
+    if (!overlayProject || !overlayProject.overlays.some((item) => item.kind === 'flow')) {
+      return
+    }
+
+    const migratedOverlays = overlayProject.overlays.map((item) => {
+      if (item.kind !== 'flow') {
+        return item
+      }
+
+      const migrated: OverlayItem = {
+        ...item,
+        fontSize: getDefaultFontSize('compare'),
+        kind: 'compare',
+        scale: 0.72,
+        text: getLegacyFlowCompareText(item.text),
+        w: getDefaultOverlayWidth('compare'),
+      }
+
+      return {
+        ...migrated,
+        ...getAlignedOverlayPosition(migrated, effectArea, 'center', 'center'),
+      }
+    })
+
+    setOverlayProject({
+      ...overlayProject,
+      effectArea,
+      overlays: migratedOverlays,
+    })
+    setSelected((current) => (current === 'flow' ? 'compare' : current))
+    setIsProjectDirty(true)
+    setEditAnnouncement('旧流程图卡片已转换为左右对比卡')
+  }, [effectArea, overlayProject])
+
+  useEffect(() => {
+    if (!selectedOverlay || !selectedOverlayIsVisible) {
+      setSelectedOverlayBounds(null)
+      return
+    }
+
+    const measureSelectedOverlay = () => {
+      const stage = stageRef.current
+      const wrapper = stage
+        ? Array.from(stage.querySelectorAll<HTMLElement>('.json-motion-wrapper')).find(
+            (element) => element.dataset.overlayId === selectedOverlay.id,
+          )
+        : null
+      const visualNodes = wrapper
+        ? Array.from(
+            wrapper.querySelectorAll<HTMLElement>('.metric-card, .split-card, .quote-frame, .flow-card, .bar-card'),
+          )
+        : []
+      const stageRect = stage?.getBoundingClientRect()
+      const quoteTextRects = wrapper
+        ? Array.from(wrapper.querySelectorAll<HTMLElement>('.quote-frame h3, .quote-frame strong')).flatMap((node) => {
+            const range = document.createRange()
+            range.selectNodeContents(node)
+            return Array.from(range.getClientRects())
+          })
+        : []
+      const visualRects = (selectedOverlay.kind === 'quote' && quoteTextRects.length
+        ? quoteTextRects
+        : visualNodes.map((node) => node.getBoundingClientRect())
+      ).filter((rect) => rect.width > 0 && rect.height > 0)
+
+      if (!stageRect || !visualRects.length) {
+        setSelectedOverlayBounds(null)
+        return
+      }
+
+      const padding = 8 * (EXPORT_WIDTH / stageRect.width)
+      const left = Math.max(0, Math.min(...visualRects.map((rect) => rect.left - stageRect.left)) * (EXPORT_WIDTH / stageRect.width) - padding)
+      const top = Math.max(0, Math.min(...visualRects.map((rect) => rect.top - stageRect.top)) * (EXPORT_HEIGHT / stageRect.height) - padding)
+      const right = Math.min(EXPORT_WIDTH, Math.max(...visualRects.map((rect) => rect.right - stageRect.left)) * (EXPORT_WIDTH / stageRect.width) + padding)
+      const bottom = Math.min(EXPORT_HEIGHT, Math.max(...visualRects.map((rect) => rect.bottom - stageRect.top)) * (EXPORT_HEIGHT / stageRect.height) + padding)
+      const nextBounds = {
+        height: Math.max(24, bottom - top),
+        left,
+        top,
+        width: Math.max(24, right - left),
+      }
+
+      setSelectedOverlayBounds((current) =>
+        current &&
+        Math.abs(current.left - nextBounds.left) < 1 &&
+        Math.abs(current.top - nextBounds.top) < 1 &&
+        Math.abs(current.width - nextBounds.width) < 1 &&
+        Math.abs(current.height - nextBounds.height) < 1
+          ? current
+          : nextBounds,
+      )
+    }
+
+    measureSelectedOverlay()
+    const interval = window.setInterval(measureSelectedOverlay, 100)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureSelectedOverlay)
+    if (stageRef.current) {
+      observer?.observe(stageRef.current)
+    }
+
+    return () => {
+      window.clearInterval(interval)
+      observer?.disconnect()
+    }
+  }, [currentPlaybackTime, effectArea, isPlaying, replayKey, selectedOverlay, selectedOverlayIsVisible])
+
   const timelineTicks = useMemo(() => {
     if (!projectDuration) {
       return [0]
@@ -1419,15 +1685,138 @@ function App() {
     setTimelineZoom(clampTimelineZoom(value))
   }
 
+  const handleTimelineWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setIsFollowingPlayhead(false)
+    const direction = event.deltaY < 0 ? 1 : -1
+    setTimelineZoom((zoom) => clampTimelineZoom(zoom + direction * TIMELINE_WHEEL_ZOOM_STEP))
+  }
+
+  const selectPresetFromKeyboard = (event: React.KeyboardEvent<HTMLButtonElement>, presetId: MotionKey) => {
+    if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key)) {
+      return
+    }
+
+    event.preventDefault()
+    const currentIndex = presets.findIndex((preset) => preset.id === presetId)
+    const offset = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
+    const nextIndex = (currentIndex + offset + presets.length) % presets.length
+    setSelected(presets[nextIndex].id)
+    setEditAnnouncement(`已选择 ${presets[nextIndex].title}`)
+    window.setTimeout(() => {
+      document.querySelector<HTMLButtonElement>(`[data-preset-id="${presets[nextIndex].id}"]`)?.focus()
+    }, 0)
+  }
+
+  const getProjectSnapshot = useCallback(
+    (): ProjectSnapshot => ({
+      effectArea: { ...effectArea },
+      overlayProject: cloneOverlayProject(overlayProject),
+      selected,
+      selectedOverlayId,
+    }),
+    [effectArea, overlayProject, selected, selectedOverlayId],
+  )
+
+  const pushHistoryEntry = useCallback((entry: ProjectHistoryEntry) => {
+    setHistory((current) => ({
+      future: [],
+      past: [...current.past, entry].slice(-PROJECT_HISTORY_LIMIT),
+    }))
+  }, [])
+
+  const recordProjectChange = useCallback(
+    (label: string) => {
+      if (historyGroupRef.current) {
+        return
+      }
+
+      pushHistoryEntry({ ...getProjectSnapshot(), label })
+      setIsProjectDirty(true)
+    },
+    [getProjectSnapshot, pushHistoryEntry],
+  )
+
+  const beginHistoryGroup = useCallback(
+    (label: string) => {
+      if (!historyGroupRef.current) {
+        historyGroupRef.current = { ...getProjectSnapshot(), label }
+      }
+    },
+    [getProjectSnapshot],
+  )
+
+  const endHistoryGroup = useCallback(() => {
+    const entry = historyGroupRef.current
+    historyGroupRef.current = null
+
+    if (!entry) {
+      return
+    }
+
+    const current = getProjectSnapshot()
+    if (JSON.stringify(entry) === JSON.stringify({ ...current, label: entry.label })) {
+      return
+    }
+
+    pushHistoryEntry(entry)
+    setIsProjectDirty(true)
+  }, [getProjectSnapshot, pushHistoryEntry])
+
+  const restoreProjectSnapshot = useCallback((snapshot: ProjectSnapshot) => {
+    setEffectArea({ ...snapshot.effectArea })
+    setOverlayProject(cloneOverlayProject(snapshot.overlayProject))
+    setSelected(snapshot.selected)
+    setSelectedOverlayId(snapshot.selectedOverlayId)
+  }, [])
+
+  const undoLastProjectChange = useCallback(() => {
+    const entry = history.past.at(-1)
+
+    if (!entry) {
+      return
+    }
+
+    const current = getProjectSnapshot()
+    setHistory((state) => ({
+      future: [{ ...current, label: entry.label }, ...state.future].slice(0, PROJECT_HISTORY_LIMIT),
+      past: state.past.slice(0, -1),
+    }))
+    restoreProjectSnapshot(entry)
+    setIsProjectDirty(true)
+    setEditAnnouncement(`已撤销：${entry.label}`)
+  }, [getProjectSnapshot, history.past, restoreProjectSnapshot])
+
+  const redoLastProjectChange = useCallback(() => {
+    const entry = history.future[0]
+
+    if (!entry) {
+      return
+    }
+
+    const current = getProjectSnapshot()
+    setHistory((state) => ({
+      future: state.future.slice(1),
+      past: [...state.past, { ...current, label: entry.label }].slice(-PROJECT_HISTORY_LIMIT),
+    }))
+    restoreProjectSnapshot(entry)
+    setIsProjectDirty(true)
+    setEditAnnouncement(`已重做：${entry.label}`)
+  }, [getProjectSnapshot, history.future, restoreProjectSnapshot])
+
   const stageStyle = useMemo(
     () => ({
+      '--fx-bottom': `${effectArea.bottomPercent}%`,
+      '--fx-top': `${effectArea.topPercent}%`,
+      '--fx-width': `${effectArea.widthPercent}%`,
       '--intensity': controls.intensity,
       '--contrast': `${controls.contrast}%`,
       '--pace': `${1.8 - controls.pace / 100}s`,
       '--line-weight': `${1 + controls.lineWeight / 50}px`,
+      '--safe-width': `${100 - effectArea.widthPercent * 2}%`,
       '--motion-state': isPlaying ? 'running' : 'paused',
     }),
-    [controls, isPlaying],
+    [controls, effectArea, isPlaying],
   )
 
   const overlayStyle = useMemo(
@@ -1442,11 +1831,60 @@ function App() {
     setControls((current) => ({ ...current, [key]: value }))
   }
 
+  const updateEffectArea = (patch: Partial<EffectAreaSettings>) => {
+    const nextArea = normalizeEffectArea({ ...effectArea, ...patch })
+    recordProjectChange('调整动效区')
+    setEffectArea(nextArea)
+    setOverlayProject((current) =>
+      current
+        ? {
+            ...current,
+            effectArea: nextArea,
+            overlays: current.overlays.map((item) => ({
+              ...item,
+              ...getAlignedOverlayPosition(item, nextArea, 'center', 'center'),
+            })),
+          }
+        : current,
+    )
+  }
+
   const updateAiConfig = (key: keyof AiConfig, value: string) => {
     setAiConfig((current) => ({ ...current, [key]: value }))
+    setAiConnection({ status: 'idle', message: '' })
+  }
+
+  const testAiConnection = async () => {
+    if (!isAiReady) {
+      setAiConnection({ message: '请先填写完整的 Base URL、模型名和 API Key', status: 'error' })
+      return
+    }
+
+    setAiConnection({ message: '正在测试模型接口…', status: 'testing' })
+
+    try {
+      const response = await fetch('/api/test-ai-connection', {
+        body: JSON.stringify(aiConfig),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      setAiConnection({ message: `连接成功 · ${aiConfig.model}`, status: 'success' })
+      setEditAnnouncement('AI 模型接口连接成功')
+    } catch (error) {
+      setAiConnection({
+        message: error instanceof Error ? error.message : 'AI 连接测试失败',
+        status: 'error',
+      })
+    }
   }
 
   const updateOverlayItem = (id: string, patch: Partial<OverlayItem>) => {
+    recordProjectChange('调整动效')
     setOverlayProject((current) =>
       current
         ? (() => {
@@ -1462,6 +1900,7 @@ function App() {
   }
 
   const updateOverlayText = (id: string, patch: OverlayText) => {
+    recordProjectChange('编辑动效文字')
     setOverlayProject((current) =>
       current
         ? {
@@ -1486,11 +1925,12 @@ function App() {
   }
 
   const addOverlayEffect = () => {
+    recordProjectChange(`添加 ${activePreset.title}`)
     const duration = parseDurationSeconds(activePreset.duration)
     const startSeconds = Math.min(currentPlaybackTime, Math.max(0, projectDuration - 0.5))
     const endSeconds = Math.max(startSeconds + 0.5, startSeconds + duration)
     const placement = (overlayProject?.overlays.length ?? 0) % 2 === 0 ? 'left' : 'right'
-    const anchor = getDefaultAnchor(selected, placement)
+    const anchor = getDefaultAnchor(selected, placement, effectArea)
     const width = getDefaultOverlayWidth(selected)
     const scale = selected === 'flow' || selected === 'bars' ? 0.88 : 1
     const item: OverlayItem = {
@@ -1504,7 +1944,7 @@ function App() {
       startSeconds,
       text: getDefaultOverlayText(selected),
       w: width,
-      x: Math.round(getCenteredSideX(placement, width, scale)),
+      x: Math.round(getCenteredEffectX(effectArea, placement, width, scale)),
       y: anchor.y,
     }
 
@@ -1512,6 +1952,7 @@ function App() {
       const overlays = [...(current?.overlays ?? []), item]
       return {
         duration: Math.max(videoAsset?.duration ?? 0, ...overlays.map((overlay) => overlay.endSeconds)),
+        effectArea,
         name: current?.name ?? 'manual_overlay.json',
         overlays,
       }
@@ -1533,6 +1974,35 @@ function App() {
       end: formatSrtTimestamp(nextEnd),
       endSeconds: nextEnd,
     })
+  }
+
+  const alignSelectedOverlay = (horizontal: AreaAlignment, vertical: AreaAlignment) => {
+    if (!selectedOverlay) {
+      return
+    }
+
+    const position = getAlignedOverlayPosition(selectedOverlay, effectArea, horizontal, vertical)
+    updateOverlayItem(selectedOverlay.id, position)
+    setEditAnnouncement(`已将 ${getOverlayLabel(selectedOverlay)} 对齐到动效区`)
+  }
+
+  const updateOverlayStartTime = (id: string, startSeconds: number) => {
+    const item = overlayProject?.overlays.find((overlay) => overlay.id === id)
+
+    if (!item) {
+      return
+    }
+
+    const duration = item.endSeconds - item.startSeconds
+    const nextStart = Math.min(Math.max(0, startSeconds), Math.max(0, projectDuration - duration))
+    const nextEnd = nextStart + duration
+    updateOverlayItem(id, {
+      end: formatSrtTimestamp(nextEnd),
+      endSeconds: nextEnd,
+      start: formatSrtTimestamp(nextStart),
+      startSeconds: nextStart,
+    })
+    seekVideo(nextStart)
   }
 
   const getTrackPercent = (seconds: number) => {
@@ -1617,6 +2087,7 @@ function App() {
     })
     setVideoTime(0)
     setIsPlaying(true)
+    setIsMuted(true)
   }
 
   const importOverlayJson = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1627,10 +2098,18 @@ function App() {
       return
     }
 
+    if (isProjectDirty && !window.confirm('导入新的 JSON 会替换当前未保存的编辑。是否继续？')) {
+      return
+    }
+
     try {
       const text = await file.text()
       const project = normalizeOverlayProject(JSON.parse(text), file.name)
+      recordProjectChange('导入 JSON 项目')
       setOverlayProject(project)
+      setEffectArea(project.effectArea ? { ...project.effectArea } : { ...DEFAULT_EFFECT_AREA })
+      setPendingSrtGeneration(null)
+      setSubtitleCues([])
       setJsonError('')
       setSrtStatus('')
       setTimelineTime(0)
@@ -1638,6 +2117,8 @@ function App() {
       setSelected(project.overlays[0]?.kind ?? selected)
       setSelectedOverlayId(project.overlays[0]?.id ?? null)
       setIsPlaying(true)
+      setIsProjectDirty(false)
+      setEditAnnouncement(`已导入 ${file.name}`)
 
       if (videoRef.current) {
         videoRef.current.currentTime = 0
@@ -1655,6 +2136,10 @@ function App() {
       return
     }
 
+    if (isProjectDirty && !window.confirm('从 SRT 生成新项目会替换当前未保存的编辑。是否继续？')) {
+      return
+    }
+
     try {
       setAiProgress({
         current: 8,
@@ -1662,6 +2147,22 @@ function App() {
         total: 100,
       })
       const text = await file.text()
+      setPendingSrtGeneration({ fileName: file.name, text })
+      setSubtitleCues(parseSrtText(text))
+      setShowCaptions(true)
+      if (isAiReady && !hasAiConsent) {
+        const target = aiConfig.baseUrl.replace(/\/$/, '')
+        const accepted = window.confirm(
+          `将把此 SRT 字幕发送至 ${target}，供 ${aiConfig.model} 生成动效 JSON。是否继续？`,
+        )
+
+        if (!accepted) {
+          setAiProgress(null)
+          return
+        }
+
+        setHasAiConsent(true)
+      }
       setIsAiGenerating(true)
       setJsonError('')
       setAiProgress({
@@ -1679,6 +2180,8 @@ function App() {
         total: 100,
       })
       setOverlayProject(project)
+      setEffectArea(project.effectArea ? { ...project.effectArea } : { ...DEFAULT_EFFECT_AREA })
+      setPendingSrtGeneration(null)
       setJsonError('')
       setSrtStatus(
         `${file.name} · ${isAiReady ? 'AI 已生成' : '本地规则已生成'} ${project.overlays.length} 个动效卡片 · ${formatDuration(
@@ -1695,6 +2198,9 @@ function App() {
       setSelected(project.overlays[0]?.kind ?? selected)
       setSelectedOverlayId(project.overlays[0]?.id ?? null)
       setIsPlaying(true)
+      recordProjectChange('从 SRT 生成项目')
+      setIsProjectDirty(false)
+      setEditAnnouncement(`已生成 ${project.overlays.length} 个动效卡片`)
 
       if (videoRef.current) {
         videoRef.current.currentTime = 0
@@ -1712,7 +2218,41 @@ function App() {
     }
   }
 
+  const useLocalSrtFallback = () => {
+    if (!pendingSrtGeneration) {
+      return
+    }
+
+    try {
+      const project = generateOverlayProjectFromSrt(pendingSrtGeneration.text, pendingSrtGeneration.fileName)
+      recordProjectChange('本地规则生成项目')
+      setOverlayProject(project)
+      setEffectArea(project.effectArea ? { ...project.effectArea } : { ...DEFAULT_EFFECT_AREA })
+      setPendingSrtGeneration(null)
+      setJsonError('')
+      setSrtStatus(
+        `${pendingSrtGeneration.fileName} · AI 请求失败，已使用本地规则生成 ${project.overlays.length} 个动效卡片 · ${formatDuration(
+          project.duration,
+        )}`,
+      )
+      setAiProgress({ current: 100, phase: '本地规则生成完成', total: 100 })
+      setTimelineTime(0)
+      setVideoTime(0)
+      setSelected(project.overlays[0]?.kind ?? selected)
+      setSelectedOverlayId(project.overlays[0]?.id ?? null)
+      setIsPlaying(true)
+      setIsProjectDirty(false)
+      setEditAnnouncement(`已使用本地规则生成 ${project.overlays.length} 个动效卡片`)
+    } catch (error) {
+      setJsonError(error instanceof Error ? error.message : '本地规则生成失败')
+    }
+  }
+
   const removeVideo = () => {
+    if (!window.confirm('移除视频预览？这不会删除已创建的动效。')) {
+      return
+    }
+
     if (videoUrlRef.current) {
       URL.revokeObjectURL(videoUrlRef.current)
       videoUrlRef.current = null
@@ -1722,12 +2262,22 @@ function App() {
   }
 
   const removeOverlayJson = () => {
+    if (isProjectDirty && !window.confirm('移除项目会丢失当前未保存的编辑。是否继续？')) {
+      return
+    }
+
+    recordProjectChange('移除动效项目')
     setOverlayProject(null)
+    setEffectArea({ ...DEFAULT_EFFECT_AREA })
+    setPendingSrtGeneration(null)
     setJsonError('')
     setSrtStatus('')
     setAiProgress(null)
     setSelectedOverlayId(null)
     setTimelineTime(0)
+    setSubtitleCues([])
+    setIsProjectDirty(false)
+    setEditAnnouncement('已移除动效项目')
   }
 
   useEffect(() => {
@@ -1739,7 +2289,10 @@ function App() {
   }, [])
 
   useEffect(() => {
-    window.localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(aiConfig))
+    window.localStorage.setItem(
+      AI_CONFIG_STORAGE_KEY,
+      JSON.stringify({ baseUrl: aiConfig.baseUrl, model: aiConfig.model }),
+    )
   }, [aiConfig])
 
   useEffect(() => {
@@ -1771,14 +2324,14 @@ function App() {
     }
 
     if (isPlaying) {
-      video.muted = false
+      video.muted = isMuted
       video.volume = 1
       void video.play().catch(() => undefined)
       return
     }
 
     video.pause()
-  }, [isPlaying, videoAsset?.url])
+  }, [isMuted, isPlaying, videoAsset?.url])
 
   useEffect(() => {
     if (!overlayProject || videoAsset || !isPlaying || overlayProject.duration <= 0) {
@@ -1798,7 +2351,7 @@ function App() {
   useEffect(() => {
     const scrollElement = timelineScrollRef.current
 
-    if (!scrollElement || !projectDuration) {
+    if (!scrollElement || !projectDuration || !isFollowingPlayhead) {
       return
     }
 
@@ -1806,7 +2359,7 @@ function App() {
     const targetLeft = progress * scrollElement.scrollWidth - scrollElement.clientWidth / 2
     const maxLeft = scrollElement.scrollWidth - scrollElement.clientWidth
     scrollElement.scrollLeft = Math.min(Math.max(0, targetLeft), Math.max(0, maxLeft))
-  }, [currentPlaybackTime, projectDuration, timelineZoom])
+  }, [currentPlaybackTime, isFollowingPlayhead, projectDuration, timelineZoom])
 
   const updateVideoDuration = (duration: number) => {
     if (!Number.isFinite(duration)) {
@@ -1841,6 +2394,20 @@ function App() {
         return
       }
 
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) {
+          redoLastProjectChange()
+        } else {
+          undoLastProjectChange()
+        }
+        return
+      }
+
+      if (target?.closest('button, a, [role="button"]')) {
+        return
+      }
+
       if (event.code === 'Space') {
         event.preventDefault()
         setIsPlaying((playing) => !playing)
@@ -1859,7 +2426,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [currentPlaybackTime, seekVideo])
+  }, [currentPlaybackTime, redoLastProjectChange, seekVideo, undoLastProjectChange])
 
   const seekFromTimeline = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!projectDuration || (event.target as HTMLElement).closest('button, input')) {
@@ -1915,6 +2482,7 @@ function App() {
 
     if (Math.abs(deltaSeconds) > 0.03) {
       dragState.moved = true
+      beginHistoryGroup('调整时间轴动效')
     }
 
     if (dragState.mode === 'trim-start') {
@@ -1970,11 +2538,60 @@ function App() {
       }
       timelineDragRef.current = null
       setIsDraggingTimeline(false)
+      endHistoryGroup()
     }
   }
 
+  const adjustTimelineClipWithKeyboard = (event: React.KeyboardEvent<HTMLButtonElement>, item: OverlayItem) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    const delta = (event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? 1 : 0.1)
+    const minDuration = 0.5
+    const duration = item.endSeconds - item.startSeconds
+    let announcement = ''
+
+    if (event.altKey) {
+      const nextStart = Math.min(
+        Math.max(0, getSnappedTime(item.startSeconds + delta, item.id)),
+        item.endSeconds - minDuration,
+      )
+      updateOverlayItem(item.id, { start: formatSrtTimestamp(nextStart), startSeconds: nextStart })
+      seekVideo(nextStart)
+      announcement = `已调整 ${getOverlayLabel(item)} 开始时间至 ${formatTimecode(nextStart)}`
+    } else if (event.shiftKey) {
+      const nextEnd = Math.max(
+        item.startSeconds + minDuration,
+        Math.min(projectDuration, getSnappedTime(item.endSeconds + delta, item.id)),
+      )
+      updateOverlayItem(item.id, { end: formatSrtTimestamp(nextEnd), endSeconds: nextEnd })
+      announcement = `已调整 ${getOverlayLabel(item)} 结束时间至 ${formatTimecode(nextEnd)}`
+    } else {
+      const nextStart = Math.min(
+        Math.max(0, getSnappedTime(item.startSeconds + delta, item.id)),
+        Math.max(0, projectDuration - duration),
+      )
+      const nextEnd = nextStart + duration
+      updateOverlayItem(item.id, {
+        end: formatSrtTimestamp(nextEnd),
+        endSeconds: nextEnd,
+        start: formatSrtTimestamp(nextStart),
+        startSeconds: nextStart,
+      })
+      seekVideo(nextStart)
+      announcement = `已移动 ${getOverlayLabel(item)} 至 ${formatTimecode(nextStart)}`
+    }
+
+    setSelectedOverlayId(item.id)
+    setSelected(item.kind)
+    setEditAnnouncement(announcement)
+  }
+
   const startOverlayDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if ((event.target as HTMLElement).closest('input, button')) {
+    if ((event.target as HTMLElement).closest('input, button, .overlay-selection-bar')) {
       return
     }
 
@@ -1983,6 +2600,12 @@ function App() {
       const overlayElement = target.closest<HTMLElement>('.json-motion-wrapper, .overlay-selection-box')
       const item = overlayProject.overlays.find((overlay) => overlay.id === overlayElement?.dataset.overlayId)
       const stageRect = stageRef.current?.getBoundingClientRect()
+      const resizeHandle = target.closest<HTMLElement>('.overlay-resize-handle')?.dataset.handle as
+        | 'nw'
+        | 'ne'
+        | 'sw'
+        | 'se'
+        | undefined
 
       if (!item || !stageRect) {
         return
@@ -1992,9 +2615,12 @@ function App() {
       setSelected(item.kind)
       dragStateRef.current = {
         id: item.id,
-        mode: target.closest('.overlay-resize-handle') ? 'json-resize' : 'json',
+        mode: resizeHandle ? 'json-resize' : 'json',
         origin: { x: item.x, y: item.y },
         originScale: item.scale,
+        resizeBaseHeight: selectedOverlayBounds?.height,
+        resizeBaseWidth: selectedOverlayBounds?.width,
+        resizeHandle,
         pointerId: event.pointerId,
         scaleX: EXPORT_WIDTH / stageRect.width,
         scaleY: EXPORT_HEIGHT / stageRect.height,
@@ -2030,12 +2656,38 @@ function App() {
       const item = overlayProject?.overlays.find((overlay) => overlay.id === dragState.id)
       const width = item ? item.w * item.scale : 420
 
+      if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
+        beginHistoryGroup('调整画布动效')
+      }
+
       if (dragState.mode === 'json-resize' && item) {
-        const nextScale = Math.min(2.4, Math.max(0.35, (dragState.originScale ?? item.scale) + deltaX / item.w))
-        const placement = dragState.origin.x >= EXPORT_WIDTH / 2 ? 'right' : 'left'
+        const resizeHandle = dragState.resizeHandle ?? 'se'
+        const horizontalDelta = resizeHandle.includes('e') ? deltaX : -deltaX
+        const verticalDelta = resizeHandle.includes('s') ? deltaY : -deltaY
+        const originScale = dragState.originScale ?? item.scale
+        const horizontalFactor = horizontalDelta / Math.max(1, dragState.resizeBaseWidth ?? item.w * originScale)
+        const verticalFactor = verticalDelta / Math.max(
+          1,
+          dragState.resizeBaseHeight ?? getOverlayBoxHeight(item.kind) * originScale,
+        )
+        const nextScale = Math.min(2.4, Math.max(0.35, originScale * (1 + (horizontalFactor + verticalFactor) / 2)))
+        const originWidth = item.w * originScale
+        const nextWidth = item.w * nextScale
+        const originHeight = getOverlayBoxHeight(item.kind) * originScale
+        const nextHeight = getOverlayBoxHeight(item.kind) * nextScale
+        const nextX = dragState.origin.x + (resizeHandle.includes('w') ? originWidth - nextWidth : 0)
+        const nextY = dragState.origin.y + (resizeHandle.includes('n') ? originHeight - nextHeight : 0)
         updateOverlayItem(dragState.id, {
           scale: Number(nextScale.toFixed(2)),
-          x: Math.round(getCenteredSideX(placement, item.w, nextScale)),
+          x: Math.round(clampSideX(nextX, nextWidth)),
+          y: Math.round(Math.min(Math.max(0, nextY), EXPORT_HEIGHT - nextHeight)),
+        })
+        return
+      }
+
+      if (item?.kind === 'compare') {
+        updateOverlayItem(dragState.id, {
+          y: Math.round(Math.min(Math.max(0, dragState.origin.y + deltaY), EXPORT_HEIGHT - 80)),
         })
         return
       }
@@ -2062,6 +2714,7 @@ function App() {
     if (dragStateRef.current?.pointerId === event.pointerId) {
       dragStateRef.current = null
       setIsDraggingOverlay(false)
+      endHistoryGroup()
     }
   }
 
@@ -2070,27 +2723,47 @@ function App() {
     currentTime: number,
     overlayDuration: number,
     exportOffset: OverlayPosition,
+    effectAreaForExport: EffectAreaSettings,
+    exportProject: OverlayProject | null,
+    exportPreset: MotionKey,
   ) => {
-    if (overlayProject) {
+    if (exportProject) {
       setupExportContext(context)
-      overlayProject.overlays
+      exportProject.overlays
         .filter((item) => currentTime >= item.startSeconds && currentTime <= item.endSeconds)
         .forEach((item) => {
-          const placement = getOverlayPlacement(item)
-          const anchor = getOverlayAnchor(item)
+          const renderItem = item.kind === 'flow'
+            ? {
+                ...item,
+                fontSize: getDefaultFontSize('compare'),
+                kind: 'compare' as const,
+                scale: 0.72,
+                text: getLegacyFlowCompareText(item.text),
+                w: getDefaultOverlayWidth('compare'),
+              }
+            : item
+          const placement = getOverlayPlacement(renderItem)
+          const anchor = getOverlayAnchor(renderItem, effectAreaForExport)
           context.save()
-          context.translate(item.x - anchor.x, item.y - anchor.y)
-          context.scale(item.scale, item.scale)
+          if (renderItem.kind === 'compare') {
+            context.translate(EXPORT_WIDTH / 2, EXPORT_HEIGHT / 2)
+            context.scale(renderItem.scale, renderItem.scale)
+            context.translate(-EXPORT_WIDTH / 2, -EXPORT_HEIGHT / 2)
+            context.translate(0, renderItem.y - anchor.y)
+          } else {
+            context.translate(renderItem.x - anchor.x, renderItem.y - anchor.y)
+            context.scale(renderItem.scale, renderItem.scale)
+          }
           drawOverlayFrame(
             context,
-            item.kind,
-            currentTime - item.startSeconds,
-            item.endSeconds - item.startSeconds,
+            renderItem.kind,
+            currentTime - renderItem.startSeconds,
+            renderItem.endSeconds - renderItem.startSeconds,
             { x: 0, y: 0 },
             {
-              ...item.text,
-              __boxWidth: item.w,
-              __fontScale: item.fontSize / getDefaultFontSize(item.kind),
+              ...renderItem.text,
+              __boxWidth: renderItem.w,
+              __fontScale: renderItem.fontSize / getDefaultFontSize(renderItem.kind),
               __placement: placement,
             },
             false,
@@ -2100,7 +2773,7 @@ function App() {
       return
     }
 
-    drawOverlayFrame(context, selected, currentTime, overlayDuration, exportOffset)
+    drawOverlayFrame(context, exportPreset, currentTime, overlayDuration, exportOffset)
   }
 
   const exportTransparentOverlay = async () => {
@@ -2117,27 +2790,35 @@ function App() {
       return
     }
 
-    const overlayDuration = parseDurationSeconds(activePreset.duration)
+    const exportProject = cloneOverlayProject(overlayProject)
+    const exportPreset = selected
+    const exportPositions = { ...overlayPositions }
+    const exportPresetConfig = presets.find((preset) => preset.id === exportPreset) ?? presets[0]
+    const overlayDuration = parseDurationSeconds(exportPresetConfig.duration)
     const exportDuration =
-      overlayProject?.duration ||
+      exportProject?.duration ||
       (videoAsset?.duration && Number.isFinite(videoAsset.duration) ? videoAsset.duration : overlayDuration)
     const totalFrames = Math.max(1, Math.round(exportDuration * EXPORT_FPS))
     const totalExportSteps = totalFrames + 1
-    const exportName = overlayProject ? 'json_overlay' : selected
+    const exportName = exportProject ? 'json_overlay' : exportPreset
     const exportId = `${exportName}_${new Date().toISOString().replace(/[:.]/g, '-').replace(/[^0-9TZ-]/g, '')}`
     const exportDirectory = `${EXPORT_ROOT_LABEL}/${exportId}`
     const stageRect = stageRef.current?.getBoundingClientRect()
     const exportOffset = stageRect
       ? {
-          x: overlayPositions[selected].x * (EXPORT_WIDTH / stageRect.width),
-          y: overlayPositions[selected].y * (EXPORT_HEIGHT / stageRect.height),
+          x: exportPositions[exportPreset].x * (EXPORT_WIDTH / stageRect.width),
+          y: exportPositions[exportPreset].y * (EXPORT_HEIGHT / stageRect.height),
         }
-      : overlayPositions[selected]
+      : exportPositions[exportPreset]
+    const snapshotLabel = exportProject
+      ? `已固定 ${exportProject.overlays.length} 个动效卡片；后续编辑不会进入本次导出。`
+      : `已固定 ${exportPresetConfig.title} 的当前画布位置。`
 
     setExportState({
       current: 0,
       format: 'video',
       phase: '正在渲染透明视频帧',
+      snapshotLabel,
       total: totalExportSteps,
     })
 
@@ -2146,13 +2827,22 @@ function App() {
         const currentTime = index / EXPORT_FPS
         const frameName = `frame_${String(index + 1).padStart(6, '0')}.png`
 
-        renderTransparentExportFrame(context, currentTime, overlayDuration, exportOffset)
+        renderTransparentExportFrame(
+          context,
+          currentTime,
+          overlayDuration,
+          exportOffset,
+          exportProject?.effectArea ?? effectArea,
+          exportProject,
+          exportPreset,
+        )
         await saveExportFrame(exportId, frameName, canvas.toDataURL('image/png'))
         setExportState({
           current: index + 1,
           directory: exportDirectory,
           format: 'video',
           phase: '正在渲染透明视频帧',
+          snapshotLabel,
           total: totalExportSteps,
         })
         await new Promise((resolve) => window.setTimeout(resolve, 0))
@@ -2163,6 +2853,7 @@ function App() {
         directory: exportDirectory,
         format: 'video',
         phase: '正在编码透明 MOV',
+        snapshotLabel,
         total: totalExportSteps,
       })
       const encoded = await encodeTransparentVideo(exportId)
@@ -2172,6 +2863,7 @@ function App() {
         file: encoded.file,
         format: 'video',
         phase: `透明视频已生成 · ${encoded.codec}`,
+        snapshotLabel,
         total: totalExportSteps,
       })
     } catch (error) {
@@ -2180,6 +2872,7 @@ function App() {
         current: 0,
         format: 'video',
         phase: error instanceof Error ? error.message : '导出失败',
+        snapshotLabel,
         total: totalExportSteps,
       })
     }
@@ -2187,20 +2880,31 @@ function App() {
 
   return (
     <main className="app-shell">
+      <p aria-live="polite" className="sr-only">
+        {editAnnouncement}
+      </p>
       <aside className="panel left-panel" aria-label="动效组件列表">
         <div className="panel-header">
           <p className="kicker">Motion Playground</p>
           <h1>Overlay Studio</h1>
         </div>
 
-        <nav className="preset-list" aria-label="选择动效组件">
+        <nav className="preset-list" aria-label="选择动效组件" role="radiogroup">
           {presets.map((preset, index) => {
             const Icon = componentIcon[preset.id]
             return (
               <button
                 className={`preset-button ${selected === preset.id ? 'is-active' : ''}`}
                 key={preset.id}
-                onClick={() => setSelected(preset.id)}
+                onKeyDown={(event) => selectPresetFromKeyboard(event, preset.id)}
+                aria-checked={selected === preset.id}
+                data-preset-id={preset.id}
+                onClick={() => {
+                  setSelected(preset.id)
+                  setEditAnnouncement(`已选择 ${preset.title}`)
+                }}
+                role="radio"
+                tabIndex={selected === preset.id ? 0 : -1}
                 type="button"
               >
                 <span className="preset-index">{String(index + 1).padStart(2, '0')}</span>
@@ -2226,7 +2930,7 @@ function App() {
             <p className="kicker">1920 x 1080 Canvas</p>
             <h2>{activePreset.title}</h2>
           </div>
-          <div className="toolbar" aria-label="播放控制">
+          <div className="toolbar" aria-label="项目操作" role="toolbar">
             <input
               accept="video/*"
               className="file-input"
@@ -2234,6 +2938,28 @@ function App() {
               ref={fileInputRef}
               type="file"
             />
+            <div className="history-controls" aria-label="编辑历史" role="group">
+              <button
+                aria-label="撤销上一步"
+                className="icon-button"
+                disabled={!history.past.length}
+                onClick={undoLastProjectChange}
+                title="撤销（Cmd/Ctrl+Z）"
+                type="button"
+              >
+                <Undo2 size={18} aria-hidden="true" />
+              </button>
+              <button
+                aria-label="重做上一步"
+                className="icon-button"
+                disabled={!history.future.length}
+                onClick={redoLastProjectChange}
+                title="重做（Shift+Cmd/Ctrl+Z）"
+                type="button"
+              >
+                <Redo2 size={18} aria-hidden="true" />
+              </button>
+            </div>
             <input
               accept="application/json,.json"
               className="file-input"
@@ -2307,8 +3033,9 @@ function App() {
                   className="video-preview"
                   key={videoAsset.url}
                   loop
+                  muted={isMuted}
                   onLoadedMetadata={(event) => {
-                    event.currentTarget.muted = false
+                    event.currentTarget.muted = isMuted
                     event.currentTarget.volume = 1
                     updateVideoDuration(event.currentTarget.duration)
                   }}
@@ -2317,6 +3044,11 @@ function App() {
                   ref={videoRef}
                   src={videoAsset.url}
                 />
+              </div>
+            )}
+            {videoAsset && showCaptions && activeCaption && (
+              <div className="video-caption" lang="zh-CN">
+                {activeCaption.text}
               </div>
             )}
             <div className="stage-grid" aria-hidden="true" />
@@ -2345,42 +3077,36 @@ function App() {
                 <>
                   {activeOverlayItems.map((item) => (
                     <JsonOverlayRenderer
+                      area={effectArea}
                       isSelected={selectedOverlayId === item.id}
                       item={item}
                       key={`${item.id}-${replayKey}`}
                     />
                   ))}
-                  {selectedOverlay && selectedOverlayIsVisible && (
+                  {selectedOverlay && selectedOverlayIsVisible && selectedOverlayBounds && (
                     <div
                       className="overlay-selection-box"
                       data-overlay-id={selectedOverlay.id}
                       style={
                         {
-                          height: `${(getOverlayBoxHeight(selectedOverlay.kind) * selectedOverlay.scale / EXPORT_HEIGHT) * 100}%`,
-                          left: `${(selectedOverlay.x / EXPORT_WIDTH) * 100}%`,
-                          top: `${(selectedOverlay.y / EXPORT_HEIGHT) * 100}%`,
-                          width: `${(selectedOverlay.w * selectedOverlay.scale / EXPORT_WIDTH) * 100}%`,
+                          height: `${(selectedOverlayBounds.height / EXPORT_HEIGHT) * 100}%`,
+                          left: `${(selectedOverlayBounds.left / EXPORT_WIDTH) * 100}%`,
+                          top: `${(selectedOverlayBounds.top / EXPORT_HEIGHT) * 100}%`,
+                          width: `${(selectedOverlayBounds.width / EXPORT_WIDTH) * 100}%`,
                         } as React.CSSProperties
                       }
                     >
                       <div className="overlay-selection-bar">
                         <span>{selectedOverlay.kind}</span>
-                        <label>
-                          时长
-                          <input
-                            aria-label="选中特效显示时长"
-                            max={Math.max(0.5, projectDuration - selectedOverlay.startSeconds)}
-                            min={0.5}
-                            onChange={(event) => updateOverlayDuration(selectedOverlay.id, Number(event.target.value))}
-                            onPointerDown={(event) => event.stopPropagation()}
-                            step={0.1}
-                            type="range"
-                            value={Number((selectedOverlay.endSeconds - selectedOverlay.startSeconds).toFixed(2))}
-                          />
-                          <b>{(selectedOverlay.endSeconds - selectedOverlay.startSeconds).toFixed(1)}s</b>
-                        </label>
                       </div>
-                      <span className="overlay-resize-handle" aria-hidden="true" />
+                      {(['nw', 'ne', 'sw', 'se'] as const).map((handle) => (
+                        <span
+                          aria-hidden="true"
+                          className={`overlay-resize-handle handle-${handle}`}
+                          data-handle={handle}
+                          key={handle}
+                        />
+                      ))}
                     </div>
                   )}
                 </>
@@ -2397,12 +3123,12 @@ function App() {
           </div>
         </div>
 
-        <div className="viewer-controls" aria-label="视频播放控制">
+        <div className="viewer-controls" aria-label="视频播放控制" role="group">
           <div className="viewer-timecodes">
             <strong>{formatTimecode(currentPlaybackTime)}</strong>
             <span>{formatTimecode(projectDuration)}</span>
           </div>
-          <div className="transport-controls">
+          <div className="transport-controls" aria-label="播放按钮" role="group">
             <button
               aria-label="后退 1 秒"
               className="transport-button"
@@ -2421,6 +3147,16 @@ function App() {
               {isPlaying ? <Pause size={18} /> : <Play size={18} />}
             </button>
             <button
+              aria-label={isMuted ? '打开视频声音' : '静音视频'}
+              className="transport-button"
+              disabled={!videoAsset}
+              onClick={() => setIsMuted((muted) => !muted)}
+              title={isMuted ? '打开视频声音' : '静音视频'}
+              type="button"
+            >
+              {isMuted ? <VolumeX size={17} aria-hidden="true" /> : <Volume2 size={17} aria-hidden="true" />}
+            </button>
+            <button
               aria-label="前进 1 秒"
               className="transport-button"
               disabled={!projectDuration}
@@ -2430,9 +3166,19 @@ function App() {
               <SkipForward size={17} />
             </button>
           </div>
-          <div className="viewer-actions">
+          <div className="viewer-actions" role="group" aria-label="预览显示选项">
             <span>原画</span>
             <span>16:9</span>
+            {subtitleCues.length > 0 && (
+              <button
+                aria-pressed={showCaptions}
+                className="viewer-mode-button"
+                onClick={() => setShowCaptions((visible) => !visible)}
+                type="button"
+              >
+                字幕
+              </button>
+            )}
           </div>
           <input
             aria-label="视频播放进度"
@@ -2449,16 +3195,17 @@ function App() {
 
         <section className="timeline-panel" aria-label="视频与动效轨道">
           <div className="timeline-toolbar">
-            <div className="timeline-tool-group" aria-label="时间轴工具">
+            <div className="timeline-tool-group" aria-label="时间轴工具" role="toolbar">
               <button className="timeline-tool add-effect-tool" onClick={addOverlayEffect} type="button">
                 <Plus size={15} aria-hidden="true" />
                 添加 {activePreset.title}
               </button>
-              <button className="timeline-tool is-active" type="button">
+              <span aria-label="当前工具：选择" className="timeline-tool is-active" role="status">
                 <MousePointer2 size={15} aria-hidden="true" />
                 选择
-              </button>
+              </span>
               <button
+                aria-pressed={isSnapEnabled}
                 className={`timeline-tool ${isSnapEnabled ? 'is-active' : ''}`}
                 onClick={() => setIsSnapEnabled((enabled) => !enabled)}
                 type="button"
@@ -2466,12 +3213,20 @@ function App() {
                 <Magnet size={15} aria-hidden="true" />
                 吸附
               </button>
+              <button
+                aria-pressed={isFollowingPlayhead}
+                className={`timeline-tool ${isFollowingPlayhead ? 'is-active' : ''}`}
+                onClick={() => setIsFollowingPlayhead((following) => !following)}
+                type="button"
+              >
+                跟随播放头
+              </button>
             </div>
             <div className="timeline-summary">
               <span>播放头 {formatTimecode(currentPlaybackTime)}</span>
               <span>项目 {formatDuration(projectDuration)}</span>
             </div>
-            <div className="timeline-zoom" aria-label="时间轴缩放">
+            <div className="timeline-zoom" aria-label="时间轴缩放" role="group">
               <button
                 aria-label="缩小时间轴"
                 className="timeline-tool icon-only"
@@ -2504,7 +3259,14 @@ function App() {
             </div>
           </div>
 
-          <div className="timeline-scroll" aria-label="可滚动时间轴" ref={timelineScrollRef}>
+          <div
+            aria-label="可滚动时间轴"
+            className="timeline-scroll"
+            onPointerDown={() => setIsFollowingPlayhead(false)}
+            onWheel={() => setIsFollowingPlayhead(false)}
+            ref={timelineScrollRef}
+            tabIndex={0}
+          >
             <div className="timeline-content" onClick={seekFromTimeline} style={timelineContentStyle}>
               <div className="timeline-ruler">
                 {timelineTicks.map((tick) => (
@@ -2524,7 +3286,12 @@ function App() {
                   <b>V1</b>
                   视频轨道
                 </span>
-                <div className="track-lane video-lane">
+                <div
+                  aria-label="视频轨道，滚动鼠标滚轮缩放时间轴"
+                  className="track-lane video-lane"
+                  onWheel={handleTimelineWheel}
+                  title="在视频轨道上滚动鼠标滚轮可放大或缩小时间轴"
+                >
                   {videoAsset ? (
                     <button className="video-clip" onClick={() => seekVideo(0)} type="button">
                       <span className="clip-filmstrip" aria-hidden="true" />
@@ -2546,6 +3313,8 @@ function App() {
                   {overlayProject?.overlays.length ? (
                     overlayProject.overlays.map((item) => (
                       <button
+                        aria-label={`${getOverlayLabel(item)}，${formatTimecode(item.startSeconds)} 到 ${formatTimecode(item.endSeconds)}。拖动左右边缘调整时长，拖动中间移动。方向键移动，Shift 加方向键调整结束，Option 加方向键调整开始。`}
+                        aria-pressed={selectedOverlayId === item.id}
                         className={`effect-clip ${selectedOverlayId === item.id ? 'is-selected' : ''}`}
                         key={item.id}
                         onClick={() => {
@@ -2558,6 +3327,7 @@ function App() {
                         onPointerDown={(event) => startTimelineClipDrag(event, item)}
                         onPointerMove={dragTimelineClip}
                         onPointerUp={stopTimelineClipDrag}
+                        onKeyDown={(event) => adjustTimelineClipWithKeyboard(event, item)}
                         style={{
                           left: `${getTrackPercent(item.startSeconds)}%`,
                           width: `${Math.max(1.8, getTrackPercent(item.endSeconds) - getTrackPercent(item.startSeconds))}%`,
@@ -2629,6 +3399,113 @@ function App() {
           恢复默认参数
         </button>
 
+        <section className="effect-area-panel" aria-label="动效区设置">
+          <div className="ai-config-heading">
+            <span>动效区</span>
+            <strong>{effectArea.widthPercent}% · {Math.round(100 - effectArea.topPercent - effectArea.bottomPercent)}% 高</strong>
+          </div>
+          <RangeControl
+            label="左右区域宽度"
+            max={35}
+            min={12}
+            onChange={(value) => updateEffectArea({ widthPercent: value })}
+            onInteractionEnd={endHistoryGroup}
+            onInteractionStart={() => beginHistoryGroup('调整动效区')}
+            value={effectArea.widthPercent}
+          />
+          <RangeControl
+            label="区域上边距"
+            max={40}
+            min={0}
+            onChange={(value) => updateEffectArea({ topPercent: value })}
+            onInteractionEnd={endHistoryGroup}
+            onInteractionStart={() => beginHistoryGroup('调整动效区')}
+            value={effectArea.topPercent}
+          />
+          <RangeControl
+            label="区域下边距"
+            max={40}
+            min={0}
+            onChange={(value) => updateEffectArea({ bottomPercent: value })}
+            onInteractionEnd={endHistoryGroup}
+            onInteractionStart={() => beginHistoryGroup('调整动效区')}
+            value={effectArea.bottomPercent}
+          />
+          <div className="alignment-stack">
+            <div className="alignment-row">
+              <span>水平对齐</span>
+              <div className="alignment-buttons" role="group" aria-label="水平对齐">
+                <button
+                  aria-label="动效区左对齐"
+                  className="alignment-button"
+                  disabled={!selectedOverlay}
+                  onClick={() => alignSelectedOverlay('start', 'center')}
+                  title="左对齐"
+                  type="button"
+                >
+                  <AlignHorizontalJustifyStart size={15} aria-hidden="true" />
+                </button>
+                <button
+                  aria-label="动效区水平居中"
+                  className="alignment-button"
+                  disabled={!selectedOverlay}
+                  onClick={() => alignSelectedOverlay('center', 'center')}
+                  title="水平居中"
+                  type="button"
+                >
+                  <AlignHorizontalJustifyCenter size={15} aria-hidden="true" />
+                </button>
+                <button
+                  aria-label="动效区右对齐"
+                  className="alignment-button"
+                  disabled={!selectedOverlay}
+                  onClick={() => alignSelectedOverlay('end', 'center')}
+                  title="右对齐"
+                  type="button"
+                >
+                  <AlignHorizontalJustifyEnd size={15} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+            <div className="alignment-row">
+              <span>垂直对齐</span>
+              <div className="alignment-buttons" role="group" aria-label="垂直对齐">
+                <button
+                  aria-label="动效区顶部对齐"
+                  className="alignment-button"
+                  disabled={!selectedOverlay}
+                  onClick={() => alignSelectedOverlay('center', 'start')}
+                  title="顶部对齐"
+                  type="button"
+                >
+                  <AlignVerticalJustifyStart size={15} aria-hidden="true" />
+                </button>
+                <button
+                  aria-label="动效区垂直居中"
+                  className="alignment-button"
+                  disabled={!selectedOverlay}
+                  onClick={() => alignSelectedOverlay('center', 'center')}
+                  title="垂直居中"
+                  type="button"
+                >
+                  <AlignVerticalJustifyCenter size={15} aria-hidden="true" />
+                </button>
+                <button
+                  aria-label="动效区底部对齐"
+                  className="alignment-button"
+                  disabled={!selectedOverlay}
+                  onClick={() => alignSelectedOverlay('center', 'end')}
+                  title="底部对齐"
+                  type="button"
+                >
+                  <AlignVerticalJustifyEnd size={15} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <p className="effect-area-hint">未选中特效时，按钮不可用。调整区域会让现有卡片保持居中。</p>
+        </section>
+
         <section className="ai-config-panel" aria-label="AI 生成配置">
           <div className="ai-config-heading">
             <span>AI 生成</span>
@@ -2667,7 +3544,43 @@ function App() {
               value={aiConfig.apiKey}
             />
           </label>
-          <p>{isAiReady ? 'SRT 导入将调用大模型生成 JSON。' : '未填完整时使用本地规则生成。'}</p>
+          <div className="ai-config-actions">
+            <div className="ai-test-row">
+              <button
+                className="ai-test-button"
+                disabled={aiConnection.status === 'testing'}
+                onClick={testAiConnection}
+                type="button"
+              >
+                <Cable size={15} aria-hidden="true" />
+                {aiConnection.status === 'testing' ? '测试中…' : '测试连接'}
+              </button>
+              {aiConnection.status !== 'idle' && (
+                <p aria-live="polite" className={`ai-test-status is-${aiConnection.status}`}>
+                  {aiConnection.message}
+                </p>
+              )}
+            </div>
+            <p>
+              {isAiReady
+                ? '导入 SRT 前会确认发送目标。API Key 仅保留到本次浏览器会话结束。'
+                : '未填完整时使用本地规则生成，不会发送字幕内容。'}
+            </p>
+            {aiConfig.apiKey && (
+              <button
+                className="text-button"
+                onClick={() => {
+                  setAiConfig((current) => ({ ...current, apiKey: '' }))
+                  setHasAiConsent(false)
+                  setAiConnection({ message: '', status: 'idle' })
+                  setEditAnnouncement('已清除本次会话的 API Key')
+                }}
+                type="button"
+              >
+                清除本次会话 API Key
+              </button>
+            )}
+          </div>
         </section>
 
         {exportState && (
@@ -2680,13 +3593,22 @@ function App() {
             {exportState.current >= exportState.total && exportState.directory && (
               <p>素材目录 {exportState.directory}</p>
             )}
+            {exportState.snapshotLabel && <p>{exportState.snapshotLabel}</p>}
           </div>
         )}
 
         {(overlayProject || jsonError || srtStatus || aiProgress) && (
           <div className={`json-status ${jsonError ? 'is-error' : ''}`} aria-live="polite">
             <span>
-              {jsonError ? '导入失败' : isAiGenerating ? 'AI 生成中' : srtStatus ? 'SRT 动效已生成' : 'JSON 时间轴已导入'}
+              {jsonError
+                ? '导入失败'
+                : isAiGenerating
+                  ? 'AI 生成中'
+                  : isProjectDirty
+                    ? '存在未保存的编辑'
+                    : srtStatus
+                      ? 'SRT 动效已生成'
+                      : 'JSON 时间轴已导入'}
             </span>
             <p>
               {jsonError ||
@@ -2696,6 +3618,11 @@ function App() {
                 )}`}
             </p>
             {aiProgress && <ProgressMeter current={aiProgress.current} phase={aiProgress.phase} total={aiProgress.total} />}
+            {jsonError && pendingSrtGeneration && (
+              <button className="text-button" onClick={useLocalSrtFallback} type="button">
+                改用本地规则生成
+              </button>
+            )}
           </div>
         )}
 
@@ -2704,6 +3631,11 @@ function App() {
             item={selectedOverlay}
             onChange={(patch) => updateOverlayItem(selectedOverlay.id, patch)}
             onTextChange={(patch) => updateOverlayText(selectedOverlay.id, patch)}
+            onStartTimeChange={(startSeconds) => updateOverlayStartTime(selectedOverlay.id, startSeconds)}
+            onTimingInteractionEnd={endHistoryGroup}
+            onTimingInteractionStart={() => beginHistoryGroup('调整动效时间')}
+            onDurationChange={(duration) => updateOverlayDuration(selectedOverlay.id, duration)}
+            projectDuration={projectDuration}
           />
         )}
 
@@ -2714,7 +3646,7 @@ function App() {
           </div>
           <div>
             <dt>输出阶段</dt>
-            <dd>Preview only</dd>
+            <dd>透明动效层 MOV</dd>
           </div>
           <div>
             <dt>导入素材</dt>
@@ -2837,12 +3769,16 @@ function RangeControl({
   max,
   min,
   onChange,
+  onInteractionEnd,
+  onInteractionStart,
   value,
 }: {
   label: string
   max: number
   min: number
   onChange: (value: number) => void
+  onInteractionEnd?: () => void
+  onInteractionStart?: () => void
   value: number
 }) {
   return (
@@ -2855,6 +3791,10 @@ function RangeControl({
         max={max}
         min={min}
         onChange={(event) => onChange(Number(event.target.value))}
+        onKeyDown={onInteractionStart}
+        onKeyUp={onInteractionEnd}
+        onPointerDown={onInteractionStart}
+        onPointerUp={onInteractionEnd}
         type="range"
         value={value}
       />
@@ -2867,6 +3807,8 @@ function EditorRange({
   max,
   min,
   onChange,
+  onInteractionEnd,
+  onInteractionStart,
   step = 1,
   value,
 }: {
@@ -2874,6 +3816,8 @@ function EditorRange({
   max: number
   min: number
   onChange: (value: number) => void
+  onInteractionEnd?: () => void
+  onInteractionStart?: () => void
   step?: number
   value: number
 }) {
@@ -2887,6 +3831,10 @@ function EditorRange({
         max={max}
         min={min}
         onChange={(event) => onChange(Number(event.target.value))}
+        onKeyDown={onInteractionStart}
+        onKeyUp={onInteractionEnd}
+        onPointerDown={onInteractionStart}
+        onPointerUp={onInteractionEnd}
         step={step}
         type="range"
         value={value}
@@ -2915,11 +3863,21 @@ function TextInput({
 function OverlayEditor({
   item,
   onChange,
+  onDurationChange,
+  onStartTimeChange,
   onTextChange,
+  onTimingInteractionEnd,
+  onTimingInteractionStart,
+  projectDuration,
 }: {
   item: OverlayItem
   onChange: (patch: Partial<OverlayItem>) => void
+  onDurationChange: (duration: number) => void
+  onStartTimeChange: (startSeconds: number) => void
   onTextChange: (patch: OverlayText) => void
+  onTimingInteractionEnd: () => void
+  onTimingInteractionStart: () => void
+  projectDuration: number
 }) {
   const scaledWidth = item.w * item.scale
   const isLeft = item.x < EXPORT_WIDTH / 2
@@ -2936,13 +3894,52 @@ function OverlayEditor({
         <strong>{item.kind}</strong>
       </div>
 
+      <div className="editor-grid editor-timing">
+        <label className="text-field">
+          <span>开始时间（秒）</span>
+          <input
+            max={Math.max(0, projectDuration - (item.endSeconds - item.startSeconds))}
+            min={0}
+            onBlur={onTimingInteractionEnd}
+            onChange={(event) => onStartTimeChange(Number(event.target.value))}
+            onFocus={onTimingInteractionStart}
+            step={0.1}
+            type="number"
+            value={Number(item.startSeconds.toFixed(1))}
+          />
+        </label>
+        <label className="text-field">
+          <span>显示时长（秒）</span>
+          <input
+            max={Math.max(0.5, projectDuration - item.startSeconds)}
+            min={0.5}
+            onBlur={onTimingInteractionEnd}
+            onChange={(event) => onDurationChange(Number(event.target.value))}
+            onFocus={onTimingInteractionStart}
+            step={0.1}
+            type="number"
+            value={Number((item.endSeconds - item.startSeconds).toFixed(1))}
+          />
+        </label>
+      </div>
+
       <div className="editor-grid">
-        <EditorRange label="位置 X" max={maxX} min={minX} onChange={updateX} value={Math.min(maxX, Math.max(minX, item.x))} />
+        <EditorRange
+          label="位置 X"
+          max={maxX}
+          min={minX}
+          onChange={updateX}
+          onInteractionEnd={onTimingInteractionEnd}
+          onInteractionStart={onTimingInteractionStart}
+          value={Math.min(maxX, Math.max(minX, item.x))}
+        />
         <EditorRange
           label="位置 Y"
           max={1000}
           min={0}
           onChange={(value) => onChange({ y: Math.round(value) })}
+          onInteractionEnd={onTimingInteractionEnd}
+          onInteractionStart={onTimingInteractionStart}
           value={item.y}
         />
         <EditorRange
@@ -2955,6 +3952,8 @@ function OverlayEditor({
               x: Math.round(getCenteredSideX(isLeft ? 'left' : 'right', item.w, value)),
             })
           }
+          onInteractionEnd={onTimingInteractionEnd}
+          onInteractionStart={onTimingInteractionStart}
           step={0.01}
           value={item.scale}
         />
@@ -2963,6 +3962,8 @@ function OverlayEditor({
           max={180}
           min={12}
           onChange={(value) => onChange({ fontSize: Math.round(value) })}
+          onInteractionEnd={onTimingInteractionEnd}
+          onInteractionStart={onTimingInteractionStart}
           value={item.fontSize}
         />
       </div>
@@ -3058,20 +4059,30 @@ function OverlayTextEditor({
   )
 }
 
-function JsonOverlayRenderer({ isSelected, item }: { isSelected: boolean; item: OverlayItem }) {
-  const placement = getOverlayPlacement(item)
+function JsonOverlayRenderer({ area, isSelected, item }: { area: EffectAreaSettings; isSelected: boolean; item: OverlayItem }) {
+  const renderItem = item.kind === 'flow'
+    ? {
+        ...item,
+        fontSize: getDefaultFontSize('compare'),
+        kind: 'compare' as const,
+        scale: 0.72,
+        text: getLegacyFlowCompareText(item.text),
+        w: getDefaultOverlayWidth('compare'),
+      }
+    : item
+  const placement = getOverlayPlacement(renderItem)
+  const layoutClass = renderItem.kind === 'compare' ? 'both' : placement
 
   return (
     <div
-      className={`json-motion-wrapper is-${placement} ${isSelected ? 'is-selected' : ''}`}
+      className={`json-motion-wrapper is-${layoutClass} ${isSelected ? 'is-selected' : ''}`}
       data-overlay-id={item.id}
-      style={getJsonOverlayStyle(item)}
+      style={getJsonOverlayStyle(renderItem, area)}
     >
-      {item.kind === 'metric' && <MetricFocus placement={placement} text={item.text} />}
-      {item.kind === 'compare' && <CompareSplit text={item.text} />}
-      {item.kind === 'quote' && <QuoteLockup placement={placement} text={item.text} />}
-      {item.kind === 'flow' && <FlowSteps placement={placement} text={item.text} />}
-      {item.kind === 'bars' && <BarInsight placement={placement} text={item.text} />}
+      {renderItem.kind === 'metric' && <MetricFocus placement={placement} text={renderItem.text} />}
+      {renderItem.kind === 'compare' && <CompareSplit text={renderItem.text} />}
+      {renderItem.kind === 'quote' && <QuoteLockup placement={placement} text={renderItem.text} />}
+      {renderItem.kind === 'bars' && <BarInsight placement={placement} text={renderItem.text} />}
     </div>
   )
 }

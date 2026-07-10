@@ -85,11 +85,88 @@ function getChatCompletionsUrl(baseUrl: string) {
     throw new Error('请先填写 API Base URL')
   }
 
-  if (cleanBase.endsWith('/chat/completions')) {
-    return cleanBase
+  let parsed: URL
+  try {
+    parsed = new URL(cleanBase)
+  } catch {
+    throw new Error('API Base URL 格式不正确，应以 http:// 或 https:// 开头')
   }
 
-  return `${cleanBase}/chat/completions`
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('API Base URL 只支持 http:// 或 https://')
+  }
+
+  const normalizedBase = parsed.toString().replace(/\/+$/, '')
+  return normalizedBase.endsWith('/chat/completions')
+    ? normalizedBase
+    : `${normalizedBase}/chat/completions`
+}
+
+function describeRequestError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return '未知网络错误'
+  }
+
+  const cause = error.cause && typeof error.cause === 'object' ? error.cause as { code?: string; message?: string } : null
+  const causeText = cause?.code || cause?.message
+
+  return causeText ? `${error.message}（${causeText}）` : error.message
+}
+
+type ChatMessage = {
+  content: string
+  role: 'system' | 'user'
+}
+
+async function requestChatCompletion(
+  chatCompletionsUrl: string,
+  apiKey: string,
+  model: string,
+  messages: ChatMessage[],
+  maxTokens: number,
+) {
+  const requestBody = JSON.stringify({
+    max_tokens: maxTokens,
+    messages,
+    model,
+    stream: false,
+    temperature: 1,
+  })
+  let upstreamResponse: Response | null = null
+  let upstreamText = ''
+  let lastError: unknown
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      upstreamResponse = await fetch(chatCompletionsUrl, {
+        body: requestBody,
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+          Connection: 'close',
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+      upstreamText = await upstreamResponse.text()
+      break
+    } catch (error) {
+      lastError = error
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)))
+      }
+    }
+  }
+
+  if (!upstreamResponse) {
+    throw new Error(`无法连接模型接口 ${chatCompletionsUrl}：${describeRequestError(lastError)}`)
+  }
+
+  if (!upstreamResponse.ok) {
+    throw new Error(upstreamText || '模型接口请求失败')
+  }
+
+  return upstreamText
 }
 
 function getJsonCandidate(content: string) {
@@ -299,6 +376,46 @@ export default defineConfig({
           }
         })
 
+        server.middlewares.use('/api/test-ai-connection', async (request, response) => {
+          if (request.method !== 'POST') {
+            response.statusCode = 405
+            response.end('Method Not Allowed')
+            return
+          }
+
+          try {
+            const body = await readRequestBody(request)
+            const payload = JSON.parse(body) as {
+              apiKey?: string
+              baseUrl?: string
+              model?: string
+            }
+            const apiKey = String(payload.apiKey ?? '').trim()
+            const model = String(payload.model ?? '').trim()
+
+            if (!apiKey || !model) {
+              response.statusCode = 400
+              response.end('请先填写 API Key 和模型名')
+              return
+            }
+
+            const chatCompletionsUrl = getChatCompletionsUrl(String(payload.baseUrl ?? ''))
+            await requestChatCompletion(
+              chatCompletionsUrl,
+              apiKey,
+              model,
+              [{ content: '只回复 OK。', role: 'user' }],
+              8,
+            )
+
+            response.setHeader('Content-Type', 'application/json')
+            response.end(JSON.stringify({ model, ok: true }))
+          } catch (error) {
+            response.statusCode = 500
+            response.end(error instanceof Error ? error.message : 'AI 连接测试失败')
+          }
+        })
+
         server.middlewares.use('/api/generate-overlay', async (request, response) => {
           if (request.method !== 'POST') {
             response.statusCode = 405
@@ -327,26 +444,8 @@ export default defineConfig({
             }
 
             const chatCompletionsUrl = getChatCompletionsUrl(String(payload.baseUrl ?? ''))
-            const requestModel = async (messages: Array<{ content: string; role: 'system' | 'user' }>) => {
-              const upstreamResponse = await fetch(chatCompletionsUrl, {
-                body: JSON.stringify({
-                  max_tokens: 8000,
-                  messages,
-                  model,
-                  temperature: 1,
-                }),
-                headers: {
-                  Authorization: `Bearer ${apiKey}`,
-                  'Content-Type': 'application/json',
-                },
-                method: 'POST',
-              })
-              const upstreamText = await upstreamResponse.text()
-
-              if (!upstreamResponse.ok) {
-                throw new Error(upstreamText || '模型接口请求失败')
-              }
-
+            const requestModel = async (messages: ChatMessage[]) => {
+              const upstreamText = await requestChatCompletion(chatCompletionsUrl, apiKey, model, messages, 8000)
               const upstreamJson = JSON.parse(upstreamText) as {
                 choices?: Array<{ message?: { content?: string } }>
               }

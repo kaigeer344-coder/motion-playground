@@ -3,7 +3,7 @@
   --surface: #0a0a0a;
   --text-strong: #f4f4f4;
   --text: #b4b4b4;
-  --text-muted: #737373;
+  --text-muted: #7d7d7d;
   --rule: rgba(255, 255, 255, 0.1);
   --rule-strong: rgba(255, 255, 255, 0.18);
   --focus: #ffffff;
@@ -38,4 +38,15 @@ input {
 
 #root {
   min-height: 100dvh;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
